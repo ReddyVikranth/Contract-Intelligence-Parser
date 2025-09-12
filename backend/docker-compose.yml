@@ -1,0 +1,106 @@
+version: '3.8'
+
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: contract_parser_mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password123
+      MONGO_INITDB_DATABASE: contract_parser
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - contract_parser_network
+
+  # Redis for Celery
+  redis:
+    image: redis:7.2-alpine
+    container_name: contract_parser_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - contract_parser_network
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: contract_parser_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - MONGODB_URL=mongodb://admin:password123@mongodb:27017/contract_parser?authSource=admin
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_NAME=contract_parser
+      - SECRET_KEY=your-secret-key-here
+      - DEBUG=True
+    depends_on:
+      - mongodb
+      - redis
+    volumes:
+      - ./backend:/app
+    networks:
+      - contract_parser_network
+
+  # Celery Worker
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: contract_parser_celery_worker
+    restart: unless-stopped
+    command: celery -A app.celery_app worker --loglevel=info --queues=contract_processing
+    environment:
+      - MONGODB_URL=mongodb://admin:password123@mongodb:27017/contract_parser?authSource=admin
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_NAME=contract_parser
+      - SECRET_KEY=your-secret-key-here
+      - DEBUG=True
+    depends_on:
+      - mongodb
+      - redis
+    volumes:
+      - ./backend:/app
+    networks:
+      - contract_parser_network
+
+  # Celery Flower (Optional - for monitoring)
+  celery_flower:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: contract_parser_celery_flower
+    restart: unless-stopped
+    command: celery -A app.celery_app flower --port=5555
+    ports:
+      - "5555:5555"
+    environment:
+      - MONGODB_URL=mongodb://admin:password123@mongodb:27017/contract_parser?authSource=admin
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_NAME=contract_parser
+      - SECRET_KEY=your-secret-key-here
+      - DEBUG=True
+    depends_on:
+      - redis
+    volumes:
+      - ./backend:/app
+    networks:
+      - contract_parser_network
+
+volumes:
+  mongodb_data:
+  redis_data:
+
+networks:
+  contract_parser_network:
+    driver: bridge
